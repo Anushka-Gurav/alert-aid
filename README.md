@@ -642,40 +642,55 @@ GET /predict/ml-metrics
 
 ## 🤝 Contributing
 
-We welcome contributions! Here's how:
+Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
 
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open Pull Request
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ---
 
-## 📄 License
+## 📜 License
 
-This project is licensed under the MIT License.
+Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **OpenWeatherMap** for weather and air quality APIs
-- **Nominatim (OpenStreetMap)** for geocoding fallback
-- **BigDataCloud** for additional geocoding support
-- **React Team** for the amazing framework
-- **FastAPI Team** for the backend framework
+Special thanks to the tools and communities that made this project possible:
 
----
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/Alert-AID/issues)
+* [OpenWeatherMap](https://openweathermap.org/) - For real-time weather data
+* [React Three Fiber](https://docs.pmnd.rs/react-three-fiber) - For the 3D globe visualization
+* [FastAPI](https://fastapi.tiangolo.com/) - For the high-performance backend
+* [Sentry](https://sentry.io/) - For application monitoring
+* [Streamlit](https://streamlit.io/) - For the ML dashboard
 
 ---
 
 <div align="center">
 
-**Made with ❤️ for safer communities**
+### 📬 Connect & Support
+
+<a href="https://github.com/ayushap18">
+  <img src="https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white" alt="GitHub"/>
+</a>
+<a href="https://linkedin.com/in/ayush">
+  <img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn"/>
+</a>
+<a href="mailto:your.email@example.com">
+  <img src="https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email"/>
+</a>
+
+<br />
+<br />
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=000000&height=100&section=footer&text=Stay%20Safe%20•%20Stay%20Alert&fontSize=30&animation=fadeIn&fontAlignY=40" width="100%" />
+
+**Built with 💙 by Ayush**
+
+</div>
 
 </div>
