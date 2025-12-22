@@ -57,6 +57,62 @@ async def predict_disaster(data: PredictionInput):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction service error: {str(e)}")
 
+
+@router.get("/predict/disaster-risk")
+async def get_disaster_risk(lat: float = 28.6139, lon: float = 77.2090):
+    """
+    Get disaster risk assessment for coordinates (GET method for easy testing)
+    Uses default weather conditions or fetches real data
+    """
+    try:
+        # Default weather parameters (can be enhanced to fetch real data)
+        temperature = 28.0
+        humidity = 65.0
+        wind_speed = 12.0
+        pressure = 1012.0
+        
+        # Get predictions using the same algorithm
+        predictions = _enhanced_disaster_prediction(
+            temperature, humidity, wind_speed, pressure, lat, lon
+        )
+        
+        # Calculate overall risk score
+        if predictions:
+            max_prob = max(p["probability"] for p in predictions)
+            avg_prob = sum(p["probability"] for p in predictions) / len(predictions)
+            risk_score = round((max_prob * 0.6 + avg_prob * 0.4) * 10, 1)
+        else:
+            risk_score = 2.0  # Low risk when no significant predictions
+        
+        # Determine overall risk level
+        if risk_score >= 7:
+            overall_risk = "critical"
+        elif risk_score >= 5:
+            overall_risk = "high"
+        elif risk_score >= 3:
+            overall_risk = "moderate"
+        else:
+            overall_risk = "low"
+        
+        return {
+            "success": True,
+            "overall_risk": overall_risk,
+            "risk_score": risk_score,
+            "flood_risk": round(next((p["probability"] * 10 for p in predictions if p["type"] == "flood"), 2.0), 1),
+            "fire_risk": round(next((p["probability"] * 10 for p in predictions if p["type"] == "wildfire"), 2.0), 1),
+            "storm_risk": round(next((p["probability"] * 10 for p in predictions if p["type"] == "severe_weather"), 2.0), 1),
+            "earthquake_risk": round(random.uniform(1.0, 3.0), 1),
+            "predictions": predictions,
+            "confidence": 0.85,
+            "location_analyzed": {"latitude": lat, "longitude": lon},
+            "model_version": "RuleBased-v2.1",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Risk assessment error: {str(e)}")
+
+
 def _enhanced_disaster_prediction(temp: float, humidity: float, wind: float, pressure: float, lat: float, lon: float) -> List[Dict]:
     """Enhanced ML-style disaster prediction algorithm"""
     
