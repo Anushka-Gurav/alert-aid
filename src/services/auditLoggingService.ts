@@ -56,6 +56,23 @@ type AuditStatus = 'success' | 'failure' | 'partial' | 'pending';
 
 // Compliance framework
 type ComplianceFramework = 'gdpr' | 'hipaa' | 'sox' | 'pci_dss' | 'iso27001' | 'nist' | 'it_act_india';
+ * Comprehensive audit trail, security logging, and compliance tracking
+ */
+
+// Log level
+type LogLevel = 'debug' | 'info' | 'warning' | 'error' | 'critical';
+
+// Event category
+type EventCategory = 'authentication' | 'authorization' | 'data_access' | 'data_modification' | 'system' | 'security' | 'compliance' | 'user_activity' | 'api' | 'emergency';
+
+// Event status
+type EventStatus = 'success' | 'failure' | 'partial' | 'pending';
+
+// Actor type
+type ActorType = 'user' | 'system' | 'api' | 'service' | 'admin' | 'external';
+
+// Resource type
+type ResourceType = 'user' | 'alert' | 'shelter' | 'donation' | 'resource' | 'volunteer' | 'report' | 'file' | 'setting' | 'permission';
 
 // Retention policy
 type RetentionPolicy = '30_days' | '90_days' | '1_year' | '3_years' | '7_years' | 'indefinite';
@@ -166,6 +183,91 @@ interface ComplianceInfo {
   sensitiveData: boolean;
   retentionPolicy: RetentionPolicy;
   legalHold: boolean;
+// Audit event
+interface AuditEvent {
+  id: string;
+  timestamp: Date;
+  level: LogLevel;
+  category: EventCategory;
+  action: string;
+  status: EventStatus;
+  actor: {
+    id: string;
+    type: ActorType;
+    name?: string;
+    email?: string;
+    ip?: string;
+    userAgent?: string;
+    sessionId?: string;
+  };
+  resource?: {
+    type: ResourceType;
+    id: string;
+    name?: string;
+  };
+  details: Record<string, unknown>;
+  changes?: {
+    field: string;
+    oldValue: unknown;
+    newValue: unknown;
+  }[];
+  metadata: {
+    correlationId?: string;
+    requestId?: string;
+    traceId?: string;
+    spanId?: string;
+    source: string;
+    environment: string;
+    version: string;
+  };
+  location?: {
+    latitude: number;
+    longitude: number;
+    city?: string;
+    country?: string;
+  };
+  risk?: {
+    score: number;
+    level: 'low' | 'medium' | 'high' | 'critical';
+    indicators: string[];
+  };
+  tags: string[];
+  hash?: string;
+  signature?: string;
+}
+
+// Audit log filter
+interface AuditLogFilter {
+  startDate?: Date;
+  endDate?: Date;
+  levels?: LogLevel[];
+  categories?: EventCategory[];
+  actions?: string[];
+  actorIds?: string[];
+  actorTypes?: ActorType[];
+  resourceTypes?: ResourceType[];
+  resourceIds?: string[];
+  status?: EventStatus[];
+  search?: string;
+  tags?: string[];
+  minRiskScore?: number;
+  correlationId?: string;
+}
+
+// Audit log summary
+interface AuditLogSummary {
+  totalEvents: number;
+  byLevel: Record<LogLevel, number>;
+  byCategory: Record<EventCategory, number>;
+  byStatus: Record<EventStatus, number>;
+  byHour: { hour: string; count: number }[];
+  topActions: { action: string; count: number }[];
+  topActors: { actorId: string; name: string; count: number }[];
+  riskSummary: {
+    totalHighRisk: number;
+    totalCriticalRisk: number;
+    topIndicators: { indicator: string; count: number }[];
+  };
 }
 
 // Audit policy
@@ -184,6 +286,16 @@ interface AuditPolicy {
   excludePatterns?: string[];
   includePatterns?: string[];
   compliance: ComplianceFramework[];
+  enabled: boolean;
+  categories: EventCategory[];
+  actions: string[];
+  retentionPolicy: RetentionPolicy;
+  alertOnFailure: boolean;
+  alertOnHighRisk: boolean;
+  requireSignature: boolean;
+  includeDetails: boolean;
+  includeChanges: boolean;
+  excludeFields: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -269,6 +381,51 @@ interface AuditAlert {
   conditions: AlertCondition[];
   actions: AlertAction[];
   throttle: number; // in minutes
+// Compliance report
+interface ComplianceReport {
+  id: string;
+  name: string;
+  type: 'SOC2' | 'GDPR' | 'HIPAA' | 'PCI_DSS' | 'ISO27001' | 'custom';
+  period: { start: Date; end: Date };
+  generatedAt: Date;
+  status: 'generating' | 'completed' | 'failed';
+  summary: {
+    totalEvents: number;
+    complianceScore: number;
+    violations: number;
+    warnings: number;
+  };
+  sections: {
+    title: string;
+    description: string;
+    status: 'pass' | 'fail' | 'warning' | 'not_applicable';
+    evidence: string[];
+    recommendations: string[];
+  }[];
+  generatedBy: string;
+}
+
+// Alert rule
+interface AuditAlertRule {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  conditions: {
+    field: string;
+    operator: 'equals' | 'contains' | 'greater_than' | 'less_than' | 'in' | 'not_in' | 'regex';
+    value: unknown;
+  }[];
+  threshold?: {
+    count: number;
+    timeWindow: number; // minutes
+  };
+  actions: {
+    type: 'email' | 'sms' | 'webhook' | 'slack' | 'pagerduty';
+    target: string;
+  }[];
+  severity: LogLevel;
+  cooldown: number; // minutes
   lastTriggered?: Date;
   triggerCount: number;
   createdAt: Date;
@@ -374,6 +531,133 @@ class AuditLoggingService {
 
   private constructor() {
     this.initializeDefaultPolicies();
+// Export configuration
+interface ExportConfig {
+  format: 'json' | 'csv' | 'pdf' | 'xml';
+  filter: AuditLogFilter;
+  fields: string[];
+  includeMetadata: boolean;
+  compress: boolean;
+  encrypt: boolean;
+  destination?: {
+    type: 'download' | 's3' | 'sftp' | 'email';
+    config: Record<string, unknown>;
+  };
+}
+
+// Archived log
+interface ArchivedLog {
+  id: string;
+  period: { start: Date; end: Date };
+  eventCount: number;
+  fileSize: number;
+  filePath: string;
+  hash: string;
+  encrypted: boolean;
+  archivedAt: Date;
+  expiresAt?: Date;
+  metadata: Record<string, unknown>;
+}
+
+// Session activity
+interface SessionActivity {
+  sessionId: string;
+  userId: string;
+  startedAt: Date;
+  lastActivityAt: Date;
+  endedAt?: Date;
+  ipAddress: string;
+  userAgent: string;
+  device?: {
+    type: string;
+    os: string;
+    browser: string;
+  };
+  location?: {
+    city: string;
+    country: string;
+  };
+  events: number;
+  riskScore: number;
+  isActive: boolean;
+}
+
+// Security incident
+interface SecurityIncident {
+  id: string;
+  title: string;
+  description: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  status: 'open' | 'investigating' | 'contained' | 'resolved' | 'closed';
+  category: string;
+  affectedResources: { type: ResourceType; id: string; name?: string }[];
+  affectedUsers: string[];
+  relatedEvents: string[];
+  timeline: { timestamp: Date; action: string; actor: string; notes?: string }[];
+  assignedTo?: string;
+  rootCause?: string;
+  resolution?: string;
+  preventionMeasures?: string[];
+  reportedAt: Date;
+  resolvedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Data access log
+interface DataAccessLog {
+  id: string;
+  timestamp: Date;
+  userId: string;
+  resourceType: ResourceType;
+  resourceId: string;
+  accessType: 'view' | 'download' | 'export' | 'print' | 'share';
+  fields?: string[];
+  purpose?: string;
+  ipAddress: string;
+  sessionId: string;
+  authorized: boolean;
+  metadata: Record<string, unknown>;
+}
+
+// API access log
+interface APIAccessLog {
+  id: string;
+  timestamp: Date;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  endpoint: string;
+  statusCode: number;
+  responseTime: number; // ms
+  requestSize: number; // bytes
+  responseSize: number; // bytes
+  clientId?: string;
+  userId?: string;
+  ipAddress: string;
+  userAgent: string;
+  error?: string;
+  rateLimit?: {
+    remaining: number;
+    limit: number;
+    reset: Date;
+  };
+}
+
+class AuditLoggingService {
+  private static instance: AuditLoggingService;
+  private events: Map<string, AuditEvent> = new Map();
+  private policies: Map<string, AuditPolicy> = new Map();
+  private alertRules: Map<string, AuditAlertRule> = new Map();
+  private complianceReports: Map<string, ComplianceReport> = new Map();
+  private archivedLogs: ArchivedLog[] = [];
+  private sessions: Map<string, SessionActivity> = new Map();
+  private incidents: Map<string, SecurityIncident> = new Map();
+  private dataAccessLogs: DataAccessLog[] = [];
+  private apiAccessLogs: APIAccessLog[] = [];
+  private listeners: ((event: string, data: unknown) => void)[] = [];
+  private environment: string = 'production';
+  private version: string = '1.0.0';
+
+  private constructor() {
     this.initializeSampleData();
   }
 
@@ -1097,4 +1381,22 @@ export type {
   TimelineActivity,
   ExportConfig,
   AuditStatistics,
+  LogLevel,
+  EventCategory,
+  EventStatus,
+  ActorType,
+  ResourceType,
+  RetentionPolicy,
+  AuditEvent,
+  AuditLogFilter,
+  AuditLogSummary,
+  AuditPolicy,
+  ComplianceReport,
+  AuditAlertRule,
+  ExportConfig,
+  ArchivedLog,
+  SessionActivity,
+  SecurityIncident,
+  DataAccessLog,
+  APIAccessLog,
 };
