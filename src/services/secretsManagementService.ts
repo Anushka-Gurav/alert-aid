@@ -4,16 +4,16 @@
  */
 
 // Secret Type
-type SecretType = 'api_key' | 'password' | 'certificate' | 'ssh_key' | 'token' | 'connection_string' | 'encryption_key' | 'oauth_credentials' | 'custom';
+type SecretType = 'api_key' | 'password' | 'certificate' | 'ssh_key' | 'token' | 'database_credential' | 'encryption_key' | 'oauth_credential' | 'custom';
 
 // Secret Status
-type SecretStatus = 'active' | 'inactive' | 'expired' | 'revoked' | 'pending' | 'compromised';
-
-// Rotation Status
-type RotationStatus = 'not_required' | 'pending' | 'in_progress' | 'completed' | 'failed' | 'overdue';
+type SecretStatus = 'active' | 'inactive' | 'expired' | 'revoked' | 'pending_rotation';
 
 // Access Level
-type AccessLevel = 'read' | 'write' | 'admin' | 'rotate' | 'delete';
+type AccessLevel = 'read' | 'write' | 'admin';
+
+// Encryption Algorithm
+type EncryptionAlgorithm = 'aes-256-gcm' | 'aes-256-cbc' | 'rsa-4096' | 'chacha20-poly1305';
 
 // Secret
 interface Secret {
@@ -21,345 +21,356 @@ interface Secret {
   name: string;
   description: string;
   type: SecretType;
-  path: string;
-  version: SecretVersion;
-  metadata: SecretMetadata;
-  access: SecretAccess;
-  rotation: SecretRotation;
-  audit: SecretAudit;
-  tags: string[];
-  labels: Record<string, string>;
   status: SecretStatus;
-}
-
-// Secret Version
-interface SecretVersion {
-  current: number;
-  versions: VersionInfo[];
-  maxVersions: number;
-  autoDeleteOldVersions: boolean;
-}
-
-// Version Info
-interface VersionInfo {
+  value: EncryptedValue;
   version: number;
-  createdAt: Date;
-  createdBy: string;
-  expiresAt?: Date;
-  status: 'current' | 'previous' | 'deprecated' | 'deleted';
-  fingerprint: string;
-  size: number;
+  environment: string[];
+  tags: string[];
+  path: string;
+  rotation: RotationConfig;
+  access: AccessConfig;
+  audit: SecretAuditEntry[];
+  metadata: {
+    createdAt: Date;
+    createdBy: string;
+    updatedAt: Date;
+    expiresAt?: Date;
+    lastAccessed?: Date;
+    lastRotated?: Date;
+  };
 }
 
-// Secret Metadata
-interface SecretMetadata {
-  createdAt: Date;
-  createdBy: string;
-  updatedAt: Date;
-  updatedBy: string;
-  owner: string;
-  team: string;
-  environment: string;
-  application: string;
-  classification: 'public' | 'internal' | 'confidential' | 'restricted';
-  compliance: string[];
-  externalId?: string;
+// Encrypted Value
+interface EncryptedValue {
+  ciphertext: string;
+  algorithm: EncryptionAlgorithm;
+  keyId: string;
+  iv?: string;
+  tag?: string;
+  encoding: 'base64' | 'hex';
 }
 
-// Secret Access
-interface SecretAccess {
+// Rotation Config
+interface RotationConfig {
+  enabled: boolean;
+  schedule?: RotationSchedule;
+  automatic: boolean;
+  notifyBefore: number;
+  maxAge: number;
+  retainVersions: number;
+  rotationLambda?: string;
+  hooks?: {
+    preRotation?: string;
+    postRotation?: string;
+    onFailure?: string;
+  };
+}
+
+// Rotation Schedule
+interface RotationSchedule {
+  type: 'interval' | 'cron' | 'manual';
+  intervalDays?: number;
+  cronExpression?: string;
+  nextRotation?: Date;
+  lastRotation?: Date;
+}
+
+// Access Config
+interface AccessConfig {
   policies: AccessPolicy[];
   allowedPrincipals: Principal[];
   deniedPrincipals: Principal[];
-  accessLog: AccessLogEntry[];
-  lastAccessed?: Date;
-  lastAccessedBy?: string;
-  accessCount: number;
+  conditions: AccessCondition[];
+  ipWhitelist?: string[];
+  mfaRequired: boolean;
+  auditAccess: boolean;
 }
 
 // Access Policy
 interface AccessPolicy {
   id: string;
   name: string;
-  principals: string[];
-  permissions: AccessLevel[];
-  conditions: PolicyCondition[];
-  effectiveFrom: Date;
-  effectiveUntil?: Date;
-  enabled: boolean;
-}
-
-// Policy Condition
-interface PolicyCondition {
-  type: 'ip_range' | 'time_window' | 'mfa_required' | 'environment' | 'custom';
-  operator: 'equals' | 'not_equals' | 'in' | 'not_in' | 'contains';
-  value: unknown;
+  effect: 'allow' | 'deny';
+  actions: ('read' | 'write' | 'delete' | 'rotate' | 'share')[];
+  resources: string[];
+  conditions?: AccessCondition[];
 }
 
 // Principal
 interface Principal {
+  type: 'user' | 'role' | 'service' | 'group';
   id: string;
-  type: 'user' | 'group' | 'service' | 'role' | 'application';
   name: string;
-  permissions: AccessLevel[];
-  grantedAt: Date;
-  grantedBy: string;
-  expiresAt?: Date;
 }
 
-// Access Log Entry
-interface AccessLogEntry {
+// Access Condition
+interface AccessCondition {
+  type: 'time' | 'ip' | 'mfa' | 'environment' | 'custom';
+  operator: 'equals' | 'not_equals' | 'in' | 'not_in' | 'between';
+  value: unknown;
+}
+
+// Secret Audit Entry
+interface SecretAuditEntry {
+  id: string;
   timestamp: Date;
-  principal: string;
-  action: 'read' | 'write' | 'rotate' | 'delete' | 'access_denied';
-  version?: number;
-  ipAddress: string;
-  userAgent?: string;
+  action: 'created' | 'read' | 'updated' | 'deleted' | 'rotated' | 'accessed' | 'shared' | 'policy_changed';
+  actor: {
+    type: 'user' | 'service' | 'system';
+    id: string;
+    name: string;
+  };
+  source: {
+    ip?: string;
+    userAgent?: string;
+    service?: string;
+  };
+  details?: Record<string, unknown>;
   success: boolean;
-  reason?: string;
+  errorMessage?: string;
 }
 
-// Secret Rotation
-interface SecretRotation {
-  enabled: boolean;
-  schedule: RotationSchedule;
-  lastRotation?: Date;
-  nextRotation?: Date;
-  status: RotationStatus;
-  history: RotationHistoryEntry[];
-  config: RotationConfig;
-  notifications: RotationNotification[];
-}
-
-// Rotation Schedule
-interface RotationSchedule {
-  type: 'automatic' | 'manual' | 'triggered';
-  frequency: number;
-  unit: 'hours' | 'days' | 'weeks' | 'months';
-  window?: {
-    startTime: string;
-    endTime: string;
-    daysOfWeek: number[];
-  };
-}
-
-// Rotation History Entry
-interface RotationHistoryEntry {
+// Secret Version
+interface SecretVersion {
   id: string;
-  timestamp: Date;
-  initiatedBy: string;
-  trigger: 'scheduled' | 'manual' | 'policy' | 'emergency';
-  oldVersion: number;
-  newVersion: number;
-  status: 'success' | 'failed' | 'rolled_back';
-  duration: number;
-  error?: string;
-}
-
-// Rotation Config
-interface RotationConfig {
-  strategy: 'create_new' | 'update_existing' | 'dual_write';
-  validator?: string;
-  preRotationHook?: string;
-  postRotationHook?: string;
-  rollbackOnFailure: boolean;
-  notifyOnRotation: boolean;
-  gracePeriod: number;
-}
-
-// Rotation Notification
-interface RotationNotification {
-  type: 'email' | 'slack' | 'webhook' | 'pagerduty';
-  target: string;
-  events: ('upcoming' | 'started' | 'completed' | 'failed')[];
-  enabled: boolean;
-}
-
-// Secret Audit
-interface SecretAudit {
-  enabled: boolean;
-  retentionDays: number;
-  events: AuditEvent[];
-  lastAudit?: Date;
-  compliance: ComplianceAudit;
-}
-
-// Audit Event
-interface AuditEvent {
-  id: string;
-  timestamp: Date;
-  eventType: 'created' | 'updated' | 'deleted' | 'accessed' | 'rotated' | 'policy_changed' | 'exported';
-  actor: string;
-  actorType: 'user' | 'service' | 'system';
-  details: Record<string, unknown>;
-  ipAddress: string;
-  result: 'success' | 'failure';
-}
-
-// Compliance Audit
-interface ComplianceAudit {
-  frameworks: string[];
-  lastAssessment?: Date;
-  nextAssessment?: Date;
-  score: number;
-  findings: ComplianceFinding[];
-}
-
-// Compliance Finding
-interface ComplianceFinding {
-  id: string;
-  severity: 'critical' | 'high' | 'medium' | 'low';
-  description: string;
-  recommendation: string;
-  status: 'open' | 'remediated' | 'accepted';
-}
-
-// Secrets Vault
-interface SecretsVault {
-  id: string;
-  name: string;
-  description: string;
-  type: VaultType;
-  configuration: VaultConfiguration;
-  secrets: string[];
-  policies: VaultPolicy[];
-  encryption: VaultEncryption;
-  replication: VaultReplication;
-  backup: VaultBackup;
-  status: 'active' | 'sealed' | 'maintenance' | 'disaster_recovery';
-  metadata: VaultMetadata;
-}
-
-// Vault Type
-type VaultType = 'local' | 'hashicorp' | 'aws_secrets_manager' | 'azure_keyvault' | 'gcp_secret_manager' | 'custom';
-
-// Vault Configuration
-interface VaultConfiguration {
-  endpoint?: string;
-  region?: string;
-  namespace?: string;
-  mountPath?: string;
-  authMethod: VaultAuthMethod;
-  options: Record<string, unknown>;
-}
-
-// Vault Auth Method
-interface VaultAuthMethod {
-  type: 'token' | 'userpass' | 'ldap' | 'oidc' | 'kubernetes' | 'aws_iam' | 'azure_msi' | 'gcp_gce';
-  config: Record<string, unknown>;
-}
-
-// Vault Policy
-interface VaultPolicy {
-  id: string;
-  name: string;
-  paths: PolicyPath[];
-  principals: string[];
-  effectiveFrom: Date;
-  effectiveUntil?: Date;
-  enabled: boolean;
-}
-
-// Policy Path
-interface PolicyPath {
-  path: string;
-  capabilities: ('create' | 'read' | 'update' | 'delete' | 'list' | 'sudo' | 'deny')[];
-  conditions?: PolicyCondition[];
-}
-
-// Vault Encryption
-interface VaultEncryption {
-  algorithm: 'AES-256-GCM' | 'AES-256-CBC' | 'RSA-4096' | 'ChaCha20-Poly1305';
-  keyManagement: 'internal' | 'hsm' | 'kms' | 'external';
-  transitEncryption: boolean;
-  atRestEncryption: boolean;
-  keyRotation: {
-    enabled: boolean;
-    frequency: number;
-    lastRotation?: Date;
-  };
-}
-
-// Vault Replication
-interface VaultReplication {
-  enabled: boolean;
-  mode: 'primary' | 'secondary' | 'standby';
-  clusters: ReplicationCluster[];
-  syncStatus: 'synced' | 'syncing' | 'out_of_sync' | 'error';
-  lastSync?: Date;
-  lag?: number;
-}
-
-// Replication Cluster
-interface ReplicationCluster {
-  id: string;
-  name: string;
-  endpoint: string;
-  region: string;
-  role: 'primary' | 'secondary';
-  status: 'active' | 'inactive' | 'failing_over';
-  lastHeartbeat: Date;
-}
-
-// Vault Backup
-interface VaultBackup {
-  enabled: boolean;
-  schedule: BackupSchedule;
-  retention: number;
-  destination: BackupDestination;
-  encryption: boolean;
-  lastBackup?: Date;
-  nextBackup?: Date;
-  history: BackupHistoryEntry[];
-}
-
-// Backup Schedule
-interface BackupSchedule {
-  frequency: 'hourly' | 'daily' | 'weekly';
-  time?: string;
-  dayOfWeek?: number;
-  timezone: string;
-}
-
-// Backup Destination
-interface BackupDestination {
-  type: 's3' | 'gcs' | 'azure_blob' | 'local';
-  config: Record<string, unknown>;
-}
-
-// Backup History Entry
-interface BackupHistoryEntry {
-  id: string;
-  timestamp: Date;
-  size: number;
-  status: 'completed' | 'failed' | 'partial';
-  location: string;
-  duration: number;
-  error?: string;
-}
-
-// Vault Metadata
-interface VaultMetadata {
+  secretId: string;
+  version: number;
+  value: EncryptedValue;
+  status: 'current' | 'previous' | 'deprecated' | 'deleted';
   createdAt: Date;
   createdBy: string;
-  updatedAt: Date;
-  version: string;
-  healthCheck: HealthCheck;
+  deprecatedAt?: Date;
+  deletedAt?: Date;
+  metadata?: Record<string, unknown>;
 }
 
-// Health Check
-interface HealthCheck {
-  status: 'healthy' | 'degraded' | 'unhealthy';
-  lastCheck: Date;
-  checks: HealthCheckItem[];
-}
-
-// Health Check Item
-interface HealthCheckItem {
+// Encryption Key
+interface EncryptionKey {
+  id: string;
   name: string;
-  status: 'passing' | 'warning' | 'failing';
-  message?: string;
-  lastCheck: Date;
+  description: string;
+  algorithm: EncryptionAlgorithm;
+  status: 'active' | 'inactive' | 'pending_deletion' | 'deleted';
+  type: 'symmetric' | 'asymmetric';
+  keyMaterial?: EncryptedValue;
+  publicKey?: string;
+  origin: 'internal' | 'external' | 'hsm';
+  usage: ('encrypt' | 'decrypt' | 'sign' | 'verify' | 'wrap' | 'unwrap')[];
+  rotation: {
+    enabled: boolean;
+    period: number;
+    lastRotated?: Date;
+  };
+  metadata: {
+    createdAt: Date;
+    createdBy: string;
+    expiresAt?: Date;
+    deletionDate?: Date;
+  };
+}
+
+// Vault
+interface Vault {
+  id: string;
+  name: string;
+  description: string;
+  type: 'standard' | 'hsm' | 'external';
+  status: 'active' | 'sealed' | 'standby';
+  region: string;
+  secrets: string[];
+  keys: string[];
+  config: VaultConfig;
+  seal: SealConfig;
+  audit: VaultAuditConfig;
+  metrics: VaultMetrics;
+  metadata: {
+    createdAt: Date;
+    createdBy: string;
+    updatedAt: Date;
+    lastUnsealed?: Date;
+  };
+}
+
+// Vault Config
+interface VaultConfig {
+  maxVersions: number;
+  defaultTtl: number;
+  maxTtl: number;
+  deletionProtection: boolean;
+  casRequired: boolean;
+  softDelete: {
+    enabled: boolean;
+    retentionDays: number;
+  };
+}
+
+// Seal Config
+interface SealConfig {
+  type: 'shamir' | 'transit' | 'awskms' | 'gcpkms' | 'azurekv';
+  threshold?: number;
+  shares?: number;
+  keyId?: string;
+  recovery?: {
+    enabled: boolean;
+    shares: number;
+    threshold: number;
+  };
+}
+
+// Vault Audit Config
+interface VaultAuditConfig {
+  enabled: boolean;
+  logPath?: string;
+  format: 'json' | 'jsonx';
+  hmacAccessor: boolean;
+  logSensitiveData: boolean;
+  elideListResponses: boolean;
+}
+
+// Vault Metrics
+interface VaultMetrics {
+  secretsCount: number;
+  keysCount: number;
+  accessCount: number;
+  rotationsCount: number;
+  last24h: {
+    reads: number;
+    writes: number;
+    rotations: number;
+    failures: number;
+  };
+}
+
+// Service Account
+interface ServiceAccount {
+  id: string;
+  name: string;
+  description: string;
+  status: 'active' | 'inactive' | 'locked';
+  credentials: ServiceCredential[];
+  permissions: Permission[];
+  secretAccess: string[];
+  quotas: {
+    maxSecretsAccess: number;
+    maxRequestsPerMinute: number;
+    maxRequestsPerDay: number;
+  };
+  lastActivity?: Date;
+  metadata: {
+    createdAt: Date;
+    createdBy: string;
+    updatedAt: Date;
+    expiresAt?: Date;
+  };
+}
+
+// Service Credential
+interface ServiceCredential {
+  id: string;
+  type: 'api_key' | 'certificate' | 'token';
+  value?: string;
+  status: 'active' | 'inactive' | 'revoked';
+  expiresAt?: Date;
+  lastUsed?: Date;
+  createdAt: Date;
+  createdBy: string;
+}
+
+// Permission
+interface Permission {
+  resource: string;
+  actions: AccessLevel[];
+  conditions?: AccessCondition[];
+}
+
+// Lease
+interface SecretLease {
+  id: string;
+  secretId: string;
+  secretPath: string;
+  principal: Principal;
+  ttl: number;
+  renewable: boolean;
+  maxTtl: number;
+  issuedAt: Date;
+  expiresAt: Date;
+  renewedAt?: Date;
+  revokedAt?: Date;
+  status: 'active' | 'expired' | 'revoked';
+  metadata?: Record<string, unknown>;
+}
+
+// Dynamic Secret Template
+interface DynamicSecretTemplate {
+  id: string;
+  name: string;
+  description: string;
+  type: 'database' | 'aws' | 'gcp' | 'azure' | 'ssh' | 'pki' | 'custom';
+  backend: string;
+  config: {
+    connectionString?: string;
+    role?: string;
+    ttl?: number;
+    maxTtl?: number;
+    creationStatements?: string[];
+    revocationStatements?: string[];
+    rollbackStatements?: string[];
+    renewStatements?: string[];
+  };
+  enabled: boolean;
+  metrics: {
+    generated: number;
+    revoked: number;
+    active: number;
+  };
+  metadata: {
+    createdAt: Date;
+    createdBy: string;
+    updatedAt: Date;
+  };
+}
+
+// Certificate
+interface Certificate {
+  id: string;
+  name: string;
+  description: string;
+  type: 'root_ca' | 'intermediate_ca' | 'leaf' | 'client';
+  status: 'active' | 'expired' | 'revoked' | 'pending';
+  subject: {
+    commonName: string;
+    organization?: string;
+    organizationalUnit?: string;
+    country?: string;
+    state?: string;
+    locality?: string;
+  };
+  issuer?: string;
+  serialNumber: string;
+  publicKey: string;
+  privateKey?: EncryptedValue;
+  chain?: string[];
+  sans?: string[];
+  keyUsage?: string[];
+  extKeyUsage?: string[];
+  validity: {
+    notBefore: Date;
+    notAfter: Date;
+  };
+  fingerprint: {
+    sha1: string;
+    sha256: string;
+  };
+  revocation?: {
+    revokedAt: Date;
+    reason: string;
+    revokedBy: string;
+  };
+  metadata: {
+    createdAt: Date;
+    createdBy: string;
+    renewedAt?: Date;
+  };
 }
 
 // Secret Template
@@ -368,262 +379,35 @@ interface SecretTemplate {
   name: string;
   description: string;
   type: SecretType;
-  schema: TemplateSchema;
-  defaults: TemplateDefaults;
-  validation: TemplateValidation;
-  generation: SecretGeneration;
-  metadata: TemplateMetadata;
-}
-
-// Template Schema
-interface TemplateSchema {
-  fields: SchemaField[];
-  required: string[];
-  additionalProperties: boolean;
-}
-
-// Schema Field
-interface SchemaField {
-  name: string;
-  type: 'string' | 'number' | 'boolean' | 'array' | 'object';
-  description: string;
-  pattern?: string;
-  minLength?: number;
-  maxLength?: number;
-  enum?: string[];
-  sensitive: boolean;
-}
-
-// Template Defaults
-interface TemplateDefaults {
-  rotation: Partial<SecretRotation>;
-  access: Partial<SecretAccess>;
-  metadata: Partial<SecretMetadata>;
+  schema: {
+    fields: TemplateField[];
+    required: string[];
+    validation?: string;
+  };
+  defaults: Record<string, unknown>;
+  rotation?: Omit<RotationConfig, 'schedule'>;
+  access?: Partial<AccessConfig>;
   tags: string[];
+  metadata: {
+    createdAt: Date;
+    createdBy: string;
+    usageCount: number;
+  };
 }
 
-// Template Validation
-interface TemplateValidation {
-  rules: ValidationRule[];
-  customValidator?: string;
-}
-
-// Validation Rule
-interface ValidationRule {
-  field: string;
-  rule: 'required' | 'pattern' | 'length' | 'range' | 'custom';
-  value: unknown;
-  message: string;
-}
-
-// Secret Generation
-interface SecretGeneration {
-  enabled: boolean;
-  type: 'random' | 'uuid' | 'password' | 'key_pair' | 'certificate' | 'custom';
-  config: GenerationConfig;
-}
-
-// Generation Config
-interface GenerationConfig {
-  length?: number;
-  charset?: string;
-  includeUppercase?: boolean;
-  includeLowercase?: boolean;
-  includeNumbers?: boolean;
-  includeSymbols?: boolean;
-  excludeAmbiguous?: boolean;
-  keySize?: number;
-  algorithm?: string;
-  customGenerator?: string;
-}
-
-// Template Metadata
-interface TemplateMetadata {
-  createdAt: Date;
-  createdBy: string;
-  updatedAt: Date;
-  version: number;
-  usageCount: number;
-}
-
-// Secret Injection
-interface SecretInjection {
-  id: string;
+// Template Field
+interface TemplateField {
   name: string;
-  description: string;
-  target: InjectionTarget;
-  secrets: InjectionMapping[];
-  method: InjectionMethod;
-  schedule: InjectionSchedule;
-  validation: InjectionValidation;
-  status: 'active' | 'paused' | 'failed';
-  metadata: InjectionMetadata;
-}
-
-// Injection Target
-interface InjectionTarget {
-  type: 'kubernetes' | 'container' | 'vm' | 'application' | 'file' | 'environment';
-  selector: Record<string, string>;
-  namespace?: string;
-  cluster?: string;
-  path?: string;
-}
-
-// Injection Mapping
-interface InjectionMapping {
-  secretId: string;
-  secretPath: string;
-  targetKey: string;
-  format?: 'plain' | 'base64' | 'json' | 'yaml';
-  transform?: string;
-}
-
-// Injection Method
-interface InjectionMethod {
-  type: 'init_container' | 'sidecar' | 'csi_driver' | 'agent' | 'api' | 'file_sync';
-  config: Record<string, unknown>;
-}
-
-// Injection Schedule
-interface InjectionSchedule {
-  type: 'on_change' | 'periodic' | 'on_demand';
-  interval?: number;
-  intervalUnit?: 'seconds' | 'minutes' | 'hours';
-}
-
-// Injection Validation
-interface InjectionValidation {
-  preCheck: boolean;
-  postCheck: boolean;
-  rollbackOnFailure: boolean;
-  healthCheck?: string;
-}
-
-// Injection Metadata
-interface InjectionMetadata {
-  createdAt: Date;
-  createdBy: string;
-  updatedAt: Date;
-  lastInjection?: Date;
-  successCount: number;
-  failureCount: number;
-}
-
-// Secret Lease
-interface SecretLease {
-  id: string;
-  secretId: string;
-  principal: string;
-  lease: LeaseDetails;
-  renewal: LeaseRenewal;
-  status: 'active' | 'expired' | 'revoked' | 'renewed';
-  metadata: LeaseMetadata;
-}
-
-// Lease Details
-interface LeaseDetails {
-  duration: number;
-  durationUnit: 'seconds' | 'minutes' | 'hours' | 'days';
-  issuedAt: Date;
-  expiresAt: Date;
-  maxTtl?: number;
-}
-
-// Lease Renewal
-interface LeaseRenewal {
-  renewable: boolean;
-  renewalCount: number;
-  maxRenewals?: number;
-  lastRenewal?: Date;
-  nextRenewal?: Date;
-}
-
-// Lease Metadata
-interface LeaseMetadata {
-  createdAt: Date;
-  createdBy: string;
-  purpose: string;
-  application: string;
-  environment: string;
-}
-
-// Emergency Access
-interface EmergencyAccess {
-  id: string;
-  name: string;
-  description: string;
-  scope: EmergencyScope;
-  authorization: EmergencyAuthorization;
-  breakGlass: BreakGlassConfig;
-  audit: EmergencyAudit;
-  status: 'standby' | 'activated' | 'expired' | 'revoked';
-  metadata: EmergencyMetadata;
-}
-
-// Emergency Scope
-interface EmergencyScope {
-  vaults: string[];
-  secrets: string[];
-  permissions: AccessLevel[];
-  duration: number;
-  durationUnit: 'minutes' | 'hours' | 'days';
-}
-
-// Emergency Authorization
-interface EmergencyAuthorization {
-  requiredApprovers: number;
-  approvers: EmergencyApprover[];
-  approvalTimeout: number;
-  notifyOnActivation: string[];
-}
-
-// Emergency Approver
-interface EmergencyApprover {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  approved?: boolean;
-  approvedAt?: Date;
-  reason?: string;
-}
-
-// Break Glass Config
-interface BreakGlassConfig {
-  enabled: boolean;
-  autoExpire: boolean;
-  requireJustification: boolean;
-  requireTicket: boolean;
-  ticketSystem?: string;
-}
-
-// Emergency Audit
-interface EmergencyAudit {
-  activations: EmergencyActivation[];
-  retentionDays: number;
-}
-
-// Emergency Activation
-interface EmergencyActivation {
-  id: string;
-  activatedAt: Date;
-  activatedBy: string;
-  justification: string;
-  ticketId?: string;
-  approvals: EmergencyApprover[];
-  expiredAt?: Date;
-  revokedAt?: Date;
-  revokedBy?: string;
-  actionsPerformed: string[];
-}
-
-// Emergency Metadata
-interface EmergencyMetadata {
-  createdAt: Date;
-  createdBy: string;
-  updatedAt: Date;
-  lastActivation?: Date;
-  activationCount: number;
+  type: 'string' | 'number' | 'boolean' | 'json' | 'secret';
+  description?: string;
+  default?: unknown;
+  validation?: {
+    pattern?: string;
+    minLength?: number;
+    maxLength?: number;
+    min?: number;
+    max?: number;
+  };
 }
 
 // Secrets Statistics
@@ -632,48 +416,48 @@ interface SecretsStatistics {
     totalSecrets: number;
     activeSecrets: number;
     expiredSecrets: number;
-    compromisedSecrets: number;
-    totalVaults: number;
-    activeVaults: number;
+    pendingRotation: number;
+    totalVersions: number;
   };
   byType: Record<SecretType, number>;
-  byStatus: Record<SecretStatus, number>;
   byEnvironment: Record<string, number>;
-  rotation: {
-    rotationsToday: number;
-    rotationsThisWeek: number;
-    pendingRotations: number;
-    overdueRotations: number;
-    rotationSuccessRate: number;
-  };
   access: {
     totalAccesses: number;
-    accessesToday: number;
-    deniedAccesses: number;
+    last24hAccesses: number;
     uniqueAccessors: number;
+    deniedAccesses: number;
   };
-  compliance: {
-    overallScore: number;
-    secretsCompliant: number;
-    secretsNonCompliant: number;
-    findingsOpen: number;
+  rotation: {
+    rotationsLast30d: number;
+    scheduledRotations: number;
+    failedRotations: number;
+    avgRotationAge: number;
   };
-  leases: {
-    activeLeases: number;
-    expiringLeases: number;
-    expiredLeases: number;
-    avgLeaseDuration: number;
+  security: {
+    secretsWithMfa: number;
+    secretsWithRotation: number;
+    secretsExpiringSoon: number;
+    policyViolations: number;
   };
+  trends: {
+    date: string;
+    created: number;
+    accessed: number;
+    rotated: number;
+  }[];
 }
 
 class SecretsManagementService {
   private static instance: SecretsManagementService;
   private secrets: Map<string, Secret> = new Map();
-  private vaults: Map<string, SecretsVault> = new Map();
-  private templates: Map<string, SecretTemplate> = new Map();
-  private injections: Map<string, SecretInjection> = new Map();
+  private versions: Map<string, SecretVersion[]> = new Map();
+  private keys: Map<string, EncryptionKey> = new Map();
+  private vaults: Map<string, Vault> = new Map();
+  private serviceAccounts: Map<string, ServiceAccount> = new Map();
   private leases: Map<string, SecretLease> = new Map();
-  private emergencyAccess: Map<string, EmergencyAccess> = new Map();
+  private dynamicTemplates: Map<string, DynamicSecretTemplate> = new Map();
+  private certificates: Map<string, Certificate> = new Map();
+  private templates: Map<string, SecretTemplate> = new Map();
   private eventListeners: ((event: string, data: unknown) => void)[] = [];
 
   private constructor() {
@@ -692,400 +476,423 @@ class SecretsManagementService {
   }
 
   private initializeSampleData(): void {
-    // Initialize Secrets
-    const secretsData = [
-      { name: 'Database Password', type: 'password' as SecretType, path: 'production/database/password' },
-      { name: 'API Key - Stripe', type: 'api_key' as SecretType, path: 'production/stripe/api_key' },
-      { name: 'JWT Signing Key', type: 'encryption_key' as SecretType, path: 'production/auth/jwt_key' },
-      { name: 'AWS Access Key', type: 'api_key' as SecretType, path: 'production/aws/access_key' },
-      { name: 'OAuth Client Secret', type: 'oauth_credentials' as SecretType, path: 'production/oauth/client_secret' },
-      { name: 'SSH Deploy Key', type: 'ssh_key' as SecretType, path: 'production/deploy/ssh_key' },
-      { name: 'Redis Connection String', type: 'connection_string' as SecretType, path: 'production/redis/connection' },
-      { name: 'TLS Certificate', type: 'certificate' as SecretType, path: 'production/tls/certificate' },
+    // Initialize Encryption Keys
+    const keysData = [
+      { name: 'Master Key', algorithm: 'aes-256-gcm', type: 'symmetric' },
+      { name: 'Signing Key', algorithm: 'rsa-4096', type: 'asymmetric' },
+      { name: 'Data Encryption Key', algorithm: 'aes-256-gcm', type: 'symmetric' },
+      { name: 'Transit Key', algorithm: 'chacha20-poly1305', type: 'symmetric' },
     ];
 
+    keysData.forEach((k, idx) => {
+      const key: EncryptionKey = {
+        id: `key-${(idx + 1).toString().padStart(4, '0')}`,
+        name: k.name,
+        description: `${k.name} for secrets encryption`,
+        algorithm: k.algorithm as EncryptionAlgorithm,
+        status: 'active',
+        type: k.type as EncryptionKey['type'],
+        origin: idx === 0 ? 'hsm' : 'internal',
+        usage: k.type === 'symmetric' ? ['encrypt', 'decrypt'] : ['sign', 'verify', 'wrap', 'unwrap'],
+        rotation: {
+          enabled: true,
+          period: 90,
+          lastRotated: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000),
+        },
+        metadata: {
+          createdAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+          createdBy: 'admin',
+        },
+      };
+      this.keys.set(key.id, key);
+    });
+
+    // Initialize Vaults
+    const vaultsData = [
+      { name: 'Production Vault', type: 'hsm', region: 'us-east-1' },
+      { name: 'Development Vault', type: 'standard', region: 'us-west-2' },
+      { name: 'CI/CD Vault', type: 'standard', region: 'us-east-1' },
+    ];
+
+    vaultsData.forEach((v, idx) => {
+      const vault: Vault = {
+        id: `vault-${(idx + 1).toString().padStart(4, '0')}`,
+        name: v.name,
+        description: `${v.name} for secure secrets storage`,
+        type: v.type as Vault['type'],
+        status: 'active',
+        region: v.region,
+        secrets: [],
+        keys: Array.from(this.keys.keys()).slice(0, 2),
+        config: {
+          maxVersions: 10,
+          defaultTtl: 86400,
+          maxTtl: 2592000,
+          deletionProtection: v.type === 'hsm',
+          casRequired: true,
+          softDelete: {
+            enabled: true,
+            retentionDays: 30,
+          },
+        },
+        seal: {
+          type: v.type === 'hsm' ? 'awskms' : 'shamir',
+          threshold: 3,
+          shares: 5,
+          keyId: v.type === 'hsm' ? 'arn:aws:kms:us-east-1:123456789:key/abc123' : undefined,
+        },
+        audit: {
+          enabled: true,
+          format: 'json',
+          hmacAccessor: true,
+          logSensitiveData: false,
+          elideListResponses: true,
+        },
+        metrics: {
+          secretsCount: Math.floor(Math.random() * 100) + 20,
+          keysCount: 2,
+          accessCount: Math.floor(Math.random() * 10000) + 1000,
+          rotationsCount: Math.floor(Math.random() * 50) + 10,
+          last24h: {
+            reads: Math.floor(Math.random() * 500) + 100,
+            writes: Math.floor(Math.random() * 50) + 10,
+            rotations: Math.floor(Math.random() * 5),
+            failures: Math.floor(Math.random() * 10),
+          },
+        },
+        metadata: {
+          createdAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+          createdBy: 'admin',
+          updatedAt: new Date(),
+          lastUnsealed: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
+        },
+      };
+      this.vaults.set(vault.id, vault);
+    });
+
+    // Initialize Secrets
+    const secretsData = [
+      { name: 'Database Password', type: 'database_credential', env: ['production'] },
+      { name: 'API Key - Stripe', type: 'api_key', env: ['production', 'staging'] },
+      { name: 'JWT Signing Key', type: 'encryption_key', env: ['production', 'staging', 'development'] },
+      { name: 'AWS Access Key', type: 'token', env: ['production'] },
+      { name: 'SendGrid API Key', type: 'api_key', env: ['production', 'staging'] },
+      { name: 'GitHub Token', type: 'token', env: ['development', 'ci'] },
+      { name: 'SSH Deploy Key', type: 'ssh_key', env: ['production'] },
+      { name: 'TLS Certificate', type: 'certificate', env: ['production'] },
+      { name: 'OAuth Client Secret', type: 'oauth_credential', env: ['production', 'staging'] },
+      { name: 'Encryption Master Key', type: 'encryption_key', env: ['production'] },
+    ];
+
+    const usersData = ['admin', 'devops', 'security-team', 'automation'];
+
     secretsData.forEach((s, idx) => {
-      const daysOld = (idx + 1) * 30;
+      const user = usersData[idx % usersData.length];
+      const expiresAt = s.type === 'api_key' || s.type === 'token' ? new Date(Date.now() + (Math.random() * 180 + 30) * 24 * 60 * 60 * 1000) : undefined;
+      const isExpiringSoon = expiresAt && expiresAt.getTime() < Date.now() + 30 * 24 * 60 * 60 * 1000;
+
       const secret: Secret = {
         id: `secret-${(idx + 1).toString().padStart(4, '0')}`,
         name: s.name,
-        description: `${s.name} for production environment`,
-        type: s.type,
-        path: s.path,
-        version: {
-          current: 3,
-          versions: [
-            { version: 3, createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), createdBy: 'admin', status: 'current', fingerprint: `sha256-${Math.random().toString(36).substr(2, 64)}`, size: 256 },
-            { version: 2, createdAt: new Date(Date.now() - 37 * 24 * 60 * 60 * 1000), createdBy: 'admin', status: 'previous', fingerprint: `sha256-${Math.random().toString(36).substr(2, 64)}`, size: 256 },
-            { version: 1, createdAt: new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000), createdBy: 'admin', status: 'deprecated', fingerprint: `sha256-${Math.random().toString(36).substr(2, 64)}`, size: 256 },
-          ],
-          maxVersions: 10,
-          autoDeleteOldVersions: true,
+        description: `${s.name} secret`,
+        type: s.type as SecretType,
+        status: isExpiringSoon ? 'pending_rotation' : 'active',
+        value: {
+          ciphertext: Buffer.from(`encrypted-value-${idx}`).toString('base64'),
+          algorithm: 'aes-256-gcm',
+          keyId: 'key-0001',
+          iv: Buffer.from('random-iv').toString('base64'),
+          tag: Buffer.from('auth-tag').toString('base64'),
+          encoding: 'base64',
         },
-        metadata: {
-          createdAt: new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000),
-          createdBy: 'admin',
-          updatedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-          updatedBy: 'admin',
-          owner: 'platform-team',
-          team: 'platform',
-          environment: 'production',
-          application: 'alert-aid',
-          classification: idx < 4 ? 'restricted' : 'confidential',
-          compliance: ['SOC2', 'PCI-DSS'],
+        version: Math.floor(Math.random() * 10) + 1,
+        environment: s.env,
+        tags: [s.type, ...s.env],
+        path: `/secrets/${s.env[0]}/${s.name.toLowerCase().replace(/\s/g, '-')}`,
+        rotation: {
+          enabled: s.type !== 'certificate',
+          schedule: {
+            type: 'interval',
+            intervalDays: s.type === 'api_key' ? 90 : 180,
+            nextRotation: new Date(Date.now() + Math.random() * 90 * 24 * 60 * 60 * 1000),
+            lastRotation: new Date(Date.now() - Math.random() * 90 * 24 * 60 * 60 * 1000),
+          },
+          automatic: idx < 5,
+          notifyBefore: 14,
+          maxAge: 365,
+          retainVersions: 5,
         },
         access: {
           policies: [
             {
               id: `policy-${idx}-1`,
-              name: 'Production Access',
-              principals: ['production-apps', 'platform-team'],
-              permissions: ['read'],
-              conditions: [{ type: 'environment', operator: 'equals', value: 'production' }],
-              effectiveFrom: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
-              enabled: true,
+              name: 'Default Read Policy',
+              effect: 'allow',
+              actions: ['read'],
+              resources: [`/secrets/${s.env[0]}/*`],
             },
           ],
           allowedPrincipals: [
-            { id: 'app-1', type: 'application', name: 'API Gateway', permissions: ['read'], grantedAt: new Date(), grantedBy: 'admin' },
-            { id: 'svc-1', type: 'service', name: 'Auth Service', permissions: ['read'], grantedAt: new Date(), grantedBy: 'admin' },
+            { type: 'user', id: 'admin', name: 'Admin User' },
+            { type: 'service', id: 'api-service', name: 'API Service' },
           ],
           deniedPrincipals: [],
-          accessLog: Array.from({ length: 10 }, (_, i) => ({
-            timestamp: new Date(Date.now() - i * 60 * 60 * 1000),
-            principal: i % 2 === 0 ? 'api-gateway' : 'auth-service',
-            action: 'read' as const,
-            version: 3,
-            ipAddress: '10.0.0.' + (100 + i),
+          conditions: s.env.includes('production') ? [
+            { type: 'ip', operator: 'in', value: ['10.0.0.0/8', '192.168.0.0/16'] },
+          ] : [],
+          mfaRequired: s.env.includes('production'),
+          auditAccess: true,
+        },
+        audit: [
+          {
+            id: `audit-${idx}-1`,
+            timestamp: new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000),
+            action: 'accessed',
+            actor: { type: 'service', id: 'api-service', name: 'API Service' },
+            source: { ip: '10.0.1.50', service: 'api-service' },
             success: true,
-          })),
-          lastAccessed: new Date(Date.now() - 30 * 60 * 1000),
-          lastAccessedBy: 'api-gateway',
-          accessCount: 1500 + idx * 100,
+          },
+          {
+            id: `audit-${idx}-2`,
+            timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
+            action: 'rotated',
+            actor: { type: 'system', id: 'rotation-service', name: 'Rotation Service' },
+            source: { service: 'rotation-service' },
+            success: true,
+          },
+        ],
+        metadata: {
+          createdAt: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000),
+          createdBy: user,
+          updatedAt: new Date(),
+          expiresAt,
+          lastAccessed: new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000),
+          lastRotated: new Date(Date.now() - Math.random() * 90 * 24 * 60 * 60 * 1000),
+        },
+      };
+      this.secrets.set(secret.id, secret);
+
+      // Add secret to vault
+      const vault = Array.from(this.vaults.values())[0];
+      vault.secrets.push(secret.id);
+
+      // Generate versions
+      const secretVersions: SecretVersion[] = [];
+      for (let v = 0; v < secret.version; v++) {
+        const version: SecretVersion = {
+          id: `version-${secret.id}-${v + 1}`,
+          secretId: secret.id,
+          version: v + 1,
+          value: {
+            ciphertext: Buffer.from(`encrypted-value-${idx}-v${v + 1}`).toString('base64'),
+            algorithm: 'aes-256-gcm',
+            keyId: 'key-0001',
+            encoding: 'base64',
+          },
+          status: v + 1 === secret.version ? 'current' : v + 1 === secret.version - 1 ? 'previous' : 'deprecated',
+          createdAt: new Date(Date.now() - (secret.version - v) * 30 * 24 * 60 * 60 * 1000),
+          createdBy: user,
+        };
+        secretVersions.push(version);
+      }
+      this.versions.set(secret.id, secretVersions);
+    });
+
+    // Initialize Service Accounts
+    const serviceAccountsData = [
+      { name: 'API Service', secrets: ['secret-0001', 'secret-0002', 'secret-0003'] },
+      { name: 'Background Worker', secrets: ['secret-0001', 'secret-0004'] },
+      { name: 'CI/CD Pipeline', secrets: ['secret-0006', 'secret-0007'] },
+      { name: 'Monitoring Service', secrets: ['secret-0002', 'secret-0005'] },
+    ];
+
+    serviceAccountsData.forEach((sa, idx) => {
+      const account: ServiceAccount = {
+        id: `sa-${(idx + 1).toString().padStart(4, '0')}`,
+        name: sa.name,
+        description: `Service account for ${sa.name}`,
+        status: 'active',
+        credentials: [
+          {
+            id: `cred-${idx}-1`,
+            type: 'api_key',
+            value: `sk_${this.generateId()}`,
+            status: 'active',
+            expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+            lastUsed: new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000),
+            createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+            createdBy: 'admin',
+          },
+        ],
+        permissions: [
+          { resource: '/secrets/*', actions: ['read'] },
+          { resource: '/keys/*', actions: ['read'] },
+        ],
+        secretAccess: sa.secrets,
+        quotas: {
+          maxSecretsAccess: 10,
+          maxRequestsPerMinute: 100,
+          maxRequestsPerDay: 10000,
+        },
+        lastActivity: new Date(Date.now() - Math.random() * 60 * 60 * 1000),
+        metadata: {
+          createdAt: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000),
+          createdBy: 'admin',
+          updatedAt: new Date(),
+        },
+      };
+      this.serviceAccounts.set(account.id, account);
+    });
+
+    // Initialize Leases
+    for (let i = 0; i < 10; i++) {
+      const secret = Array.from(this.secrets.values())[i % this.secrets.size];
+      const lease: SecretLease = {
+        id: `lease-${this.generateId()}`,
+        secretId: secret.id,
+        secretPath: secret.path,
+        principal: secret.access.allowedPrincipals[0],
+        ttl: 3600,
+        renewable: true,
+        maxTtl: 86400,
+        issuedAt: new Date(Date.now() - Math.random() * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + Math.random() * 60 * 60 * 1000),
+        status: 'active',
+      };
+      this.leases.set(lease.id, lease);
+    }
+
+    // Initialize Dynamic Secret Templates
+    const dynamicTemplatesData = [
+      { name: 'PostgreSQL Credentials', type: 'database', backend: 'postgresql' },
+      { name: 'MySQL Credentials', type: 'database', backend: 'mysql' },
+      { name: 'AWS STS Credentials', type: 'aws', backend: 'aws-sts' },
+      { name: 'SSH Certificates', type: 'ssh', backend: 'ssh-ca' },
+    ];
+
+    dynamicTemplatesData.forEach((dt, idx) => {
+      const template: DynamicSecretTemplate = {
+        id: `dyn-${(idx + 1).toString().padStart(4, '0')}`,
+        name: dt.name,
+        description: `Dynamic ${dt.name.toLowerCase()}`,
+        type: dt.type as DynamicSecretTemplate['type'],
+        backend: dt.backend,
+        config: {
+          ttl: 3600,
+          maxTtl: 86400,
+          role: `${dt.backend}-role`,
+          creationStatements: dt.type === 'database' ? ['CREATE USER ...', 'GRANT SELECT ON ...'] : undefined,
+          revocationStatements: dt.type === 'database' ? ['DROP USER ...'] : undefined,
+        },
+        enabled: true,
+        metrics: {
+          generated: Math.floor(Math.random() * 1000) + 100,
+          revoked: Math.floor(Math.random() * 500) + 50,
+          active: Math.floor(Math.random() * 50) + 10,
+        },
+        metadata: {
+          createdAt: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000),
+          createdBy: 'admin',
+          updatedAt: new Date(),
+        },
+      };
+      this.dynamicTemplates.set(template.id, template);
+    });
+
+    // Initialize Certificates
+    const certificatesData = [
+      { name: 'Root CA', type: 'root_ca', cn: 'AlertAid Root CA' },
+      { name: 'Intermediate CA', type: 'intermediate_ca', cn: 'AlertAid Intermediate CA' },
+      { name: 'API Server Certificate', type: 'leaf', cn: 'api.alertaid.com' },
+      { name: 'Web Server Certificate', type: 'leaf', cn: '*.alertaid.com' },
+    ];
+
+    certificatesData.forEach((c, idx) => {
+      const cert: Certificate = {
+        id: `cert-${(idx + 1).toString().padStart(4, '0')}`,
+        name: c.name,
+        description: `${c.name} for AlertAid`,
+        type: c.type as Certificate['type'],
+        status: 'active',
+        subject: {
+          commonName: c.cn,
+          organization: 'AlertAid Inc',
+          organizationalUnit: 'Engineering',
+          country: 'US',
+          state: 'California',
+          locality: 'San Francisco',
+        },
+        issuer: c.type !== 'root_ca' ? 'cert-0001' : undefined,
+        serialNumber: Math.random().toString(16).substring(2, 18),
+        publicKey: '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\n-----END PUBLIC KEY-----',
+        sans: c.type === 'leaf' ? [c.cn, `www.${c.cn.replace('*.', '')}`] : undefined,
+        keyUsage: c.type.includes('ca') ? ['digitalSignature', 'keyCertSign', 'cRLSign'] : ['digitalSignature', 'keyEncipherment'],
+        extKeyUsage: c.type === 'leaf' ? ['serverAuth', 'clientAuth'] : undefined,
+        validity: {
+          notBefore: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+          notAfter: new Date(Date.now() + (c.type.includes('ca') ? 10 : 1) * 365 * 24 * 60 * 60 * 1000),
+        },
+        fingerprint: {
+          sha1: Math.random().toString(16).substring(2, 42),
+          sha256: Math.random().toString(16).substring(2, 66),
+        },
+        metadata: {
+          createdAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+          createdBy: 'admin',
+        },
+      };
+      this.certificates.set(cert.id, cert);
+    });
+
+    // Initialize Secret Templates
+    const templatesData = [
+      { name: 'API Key Template', type: 'api_key' },
+      { name: 'Database Credential Template', type: 'database_credential' },
+      { name: 'OAuth Credential Template', type: 'oauth_credential' },
+    ];
+
+    templatesData.forEach((t, idx) => {
+      const template: SecretTemplate = {
+        id: `tmpl-${(idx + 1).toString().padStart(4, '0')}`,
+        name: t.name,
+        description: `Template for ${t.type.replace('_', ' ')} secrets`,
+        type: t.type as SecretType,
+        schema: {
+          fields: [
+            { name: 'value', type: 'secret', description: 'The secret value' },
+            { name: 'environment', type: 'string', description: 'Target environment' },
+            { name: 'expires_at', type: 'string', description: 'Expiration date' },
+          ],
+          required: ['value', 'environment'],
+        },
+        defaults: {
+          rotation_enabled: true,
+          rotation_days: 90,
         },
         rotation: {
           enabled: true,
-          schedule: {
-            type: 'automatic',
-            frequency: 30,
-            unit: 'days',
-            window: { startTime: '02:00', endTime: '04:00', daysOfWeek: [0, 6] },
-          },
-          lastRotation: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-          nextRotation: new Date(Date.now() + 23 * 24 * 60 * 60 * 1000),
-          status: 'completed',
-          history: [
-            {
-              id: `rotation-${idx}-1`,
-              timestamp: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-              initiatedBy: 'system',
-              trigger: 'scheduled',
-              oldVersion: 2,
-              newVersion: 3,
-              status: 'success',
-              duration: 45,
-            },
-          ],
-          config: {
-            strategy: 'create_new',
-            rollbackOnFailure: true,
-            notifyOnRotation: true,
-            gracePeriod: 3600,
-          },
-          notifications: [
-            { type: 'slack', target: '#security-alerts', events: ['upcoming', 'completed', 'failed'], enabled: true },
-          ],
+          automatic: false,
+          notifyBefore: 14,
+          maxAge: 365,
+          retainVersions: 5,
         },
-        audit: {
-          enabled: true,
-          retentionDays: 365,
-          events: Array.from({ length: 5 }, (_, i) => ({
-            id: `audit-${idx}-${i}`,
-            timestamp: new Date(Date.now() - i * 24 * 60 * 60 * 1000),
-            eventType: i === 0 ? 'rotated' : 'accessed' as AuditEvent['eventType'],
-            actor: i === 0 ? 'system' : 'api-gateway',
-            actorType: i === 0 ? 'system' : 'service' as AuditEvent['actorType'],
-            details: {},
-            ipAddress: '10.0.0.1',
-            result: 'success',
-          })),
-          lastAudit: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-          compliance: {
-            frameworks: ['SOC2', 'PCI-DSS'],
-            lastAssessment: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-            nextAssessment: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
-            score: 95,
-            findings: [],
-          },
+        tags: ['template', t.type],
+        metadata: {
+          createdAt: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000),
+          createdBy: 'admin',
+          usageCount: Math.floor(Math.random() * 50) + 10,
         },
-        tags: [s.type, 'production', 'critical'],
-        labels: { environment: 'production', team: 'platform', application: 'alert-aid' },
-        status: 'active',
       };
-      this.secrets.set(secret.id, secret);
+      this.templates.set(template.id, template);
     });
-
-    // Initialize Vault
-    const vault: SecretsVault = {
-      id: 'vault-0001',
-      name: 'Production Vault',
-      description: 'Primary production secrets vault',
-      type: 'hashicorp',
-      configuration: {
-        endpoint: 'https://vault.internal:8200',
-        namespace: 'production',
-        mountPath: 'secret',
-        authMethod: {
-          type: 'kubernetes',
-          config: { role: 'production-app', serviceAccount: 'vault-auth' },
-        },
-        options: { tlsVerify: true },
-      },
-      secrets: Array.from(this.secrets.keys()),
-      policies: [
-        {
-          id: 'vault-policy-1',
-          name: 'Production Read',
-          paths: [
-            { path: 'secret/production/*', capabilities: ['read', 'list'] },
-          ],
-          principals: ['production-apps'],
-          effectiveFrom: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
-          enabled: true,
-        },
-        {
-          id: 'vault-policy-2',
-          name: 'Admin Full Access',
-          paths: [
-            { path: 'secret/*', capabilities: ['create', 'read', 'update', 'delete', 'list'] },
-          ],
-          principals: ['vault-admins'],
-          effectiveFrom: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
-          enabled: true,
-        },
-      ],
-      encryption: {
-        algorithm: 'AES-256-GCM',
-        keyManagement: 'hsm',
-        transitEncryption: true,
-        atRestEncryption: true,
-        keyRotation: {
-          enabled: true,
-          frequency: 90,
-          lastRotation: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-        },
-      },
-      replication: {
-        enabled: true,
-        mode: 'primary',
-        clusters: [
-          { id: 'cluster-1', name: 'US-East Primary', endpoint: 'https://vault-east.internal:8200', region: 'us-east-1', role: 'primary', status: 'active', lastHeartbeat: new Date() },
-          { id: 'cluster-2', name: 'EU-West Secondary', endpoint: 'https://vault-west.internal:8200', region: 'eu-west-1', role: 'secondary', status: 'active', lastHeartbeat: new Date() },
-        ],
-        syncStatus: 'synced',
-        lastSync: new Date(),
-        lag: 50,
-      },
-      backup: {
-        enabled: true,
-        schedule: { frequency: 'daily', time: '03:00', timezone: 'UTC' },
-        retention: 30,
-        destination: { type: 's3', config: { bucket: 'vault-backups', region: 'us-east-1' } },
-        encryption: true,
-        lastBackup: new Date(Date.now() - 24 * 60 * 60 * 1000),
-        nextBackup: new Date(Date.now() + 3 * 60 * 60 * 1000),
-        history: [
-          { id: 'backup-1', timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000), size: 500 * 1024 * 1024, status: 'completed', location: 's3://vault-backups/daily/backup-001.enc', duration: 300 },
-        ],
-      },
-      status: 'active',
-      metadata: {
-        createdAt: new Date(Date.now() - 730 * 24 * 60 * 60 * 1000),
-        createdBy: 'admin',
-        updatedAt: new Date(),
-        version: '1.12.0',
-        healthCheck: {
-          status: 'healthy',
-          lastCheck: new Date(),
-          checks: [
-            { name: 'Seal Status', status: 'passing', lastCheck: new Date() },
-            { name: 'Storage Backend', status: 'passing', lastCheck: new Date() },
-            { name: 'Replication', status: 'passing', lastCheck: new Date() },
-          ],
-        },
-      },
-    };
-    this.vaults.set(vault.id, vault);
-
-    // Initialize Template
-    const template: SecretTemplate = {
-      id: 'template-0001',
-      name: 'Database Credentials',
-      description: 'Template for database credentials',
-      type: 'password',
-      schema: {
-        fields: [
-          { name: 'username', type: 'string', description: 'Database username', minLength: 3, maxLength: 64, sensitive: false },
-          { name: 'password', type: 'string', description: 'Database password', minLength: 16, maxLength: 128, sensitive: true },
-          { name: 'host', type: 'string', description: 'Database host', sensitive: false },
-          { name: 'port', type: 'number', description: 'Database port', sensitive: false },
-          { name: 'database', type: 'string', description: 'Database name', sensitive: false },
-        ],
-        required: ['username', 'password', 'host', 'database'],
-        additionalProperties: false,
-      },
-      defaults: {
-        rotation: { enabled: true, schedule: { type: 'automatic', frequency: 30, unit: 'days' } },
-        metadata: { classification: 'restricted', compliance: ['SOC2'] },
-        tags: ['database', 'credentials'],
-      },
-      validation: {
-        rules: [
-          { field: 'password', rule: 'length', value: { min: 16 }, message: 'Password must be at least 16 characters' },
-          { field: 'password', rule: 'pattern', value: '^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[!@#$%^&*])', message: 'Password must contain uppercase, lowercase, numbers, and symbols' },
-        ],
-      },
-      generation: {
-        enabled: true,
-        type: 'password',
-        config: {
-          length: 32,
-          includeUppercase: true,
-          includeLowercase: true,
-          includeNumbers: true,
-          includeSymbols: true,
-          excludeAmbiguous: true,
-        },
-      },
-      metadata: {
-        createdAt: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000),
-        createdBy: 'admin',
-        updatedAt: new Date(),
-        version: 2,
-        usageCount: 45,
-      },
-    };
-    this.templates.set(template.id, template);
-
-    // Initialize Injection
-    const injection: SecretInjection = {
-      id: 'injection-0001',
-      name: 'API Gateway Secrets',
-      description: 'Inject secrets into API Gateway pods',
-      target: {
-        type: 'kubernetes',
-        selector: { app: 'api-gateway', environment: 'production' },
-        namespace: 'production',
-        cluster: 'prod-cluster',
-      },
-      secrets: [
-        { secretId: 'secret-0001', secretPath: 'production/database/password', targetKey: 'DB_PASSWORD', format: 'plain' },
-        { secretId: 'secret-0002', secretPath: 'production/stripe/api_key', targetKey: 'STRIPE_API_KEY', format: 'plain' },
-      ],
-      method: {
-        type: 'sidecar',
-        config: { image: 'vault-agent:1.12', port: 8200 },
-      },
-      schedule: {
-        type: 'on_change',
-      },
-      validation: {
-        preCheck: true,
-        postCheck: true,
-        rollbackOnFailure: true,
-        healthCheck: '/health',
-      },
-      status: 'active',
-      metadata: {
-        createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
-        createdBy: 'admin',
-        updatedAt: new Date(),
-        lastInjection: new Date(Date.now() - 60 * 60 * 1000),
-        successCount: 500,
-        failureCount: 2,
-      },
-    };
-    this.injections.set(injection.id, injection);
-
-    // Initialize Lease
-    const lease: SecretLease = {
-      id: 'lease-0001',
-      secretId: 'secret-0001',
-      principal: 'api-gateway',
-      lease: {
-        duration: 1,
-        durationUnit: 'hours',
-        issuedAt: new Date(Date.now() - 30 * 60 * 1000),
-        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-        maxTtl: 24 * 60 * 60,
-      },
-      renewal: {
-        renewable: true,
-        renewalCount: 3,
-        maxRenewals: 10,
-        lastRenewal: new Date(Date.now() - 30 * 60 * 1000),
-        nextRenewal: new Date(Date.now() + 15 * 60 * 1000),
-      },
-      status: 'active',
-      metadata: {
-        createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
-        createdBy: 'system',
-        purpose: 'Database access',
-        application: 'api-gateway',
-        environment: 'production',
-      },
-    };
-    this.leases.set(lease.id, lease);
-
-    // Initialize Emergency Access
-    const emergency: EmergencyAccess = {
-      id: 'emergency-0001',
-      name: 'Production Break Glass',
-      description: 'Emergency access to production secrets',
-      scope: {
-        vaults: ['vault-0001'],
-        secrets: Array.from(this.secrets.keys()),
-        permissions: ['read', 'write'],
-        duration: 4,
-        durationUnit: 'hours',
-      },
-      authorization: {
-        requiredApprovers: 2,
-        approvers: [
-          { id: 'approver-1', name: 'CISO', email: 'ciso@company.com', role: 'Security' },
-          { id: 'approver-2', name: 'CTO', email: 'cto@company.com', role: 'Technology' },
-          { id: 'approver-3', name: 'VP Eng', email: 'vpeng@company.com', role: 'Engineering' },
-        ],
-        approvalTimeout: 30,
-        notifyOnActivation: ['security@company.com', 'oncall@company.com'],
-      },
-      breakGlass: {
-        enabled: true,
-        autoExpire: true,
-        requireJustification: true,
-        requireTicket: true,
-        ticketSystem: 'jira',
-      },
-      audit: {
-        activations: [],
-        retentionDays: 365,
-      },
-      status: 'standby',
-      metadata: {
-        createdAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
-        createdBy: 'security-team',
-        updatedAt: new Date(),
-        activationCount: 3,
-      },
-    };
-    this.emergencyAccess.set(emergency.id, emergency);
   }
 
   // Secret Operations
-  public getSecrets(type?: SecretType): Secret[] {
+  public getSecrets(type?: SecretType, environment?: string): Secret[] {
     let secrets = Array.from(this.secrets.values());
     if (type) secrets = secrets.filter((s) => s.type === type);
-    return secrets;
+    if (environment) secrets = secrets.filter((s) => s.environment.includes(environment));
+    return secrets.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   public getSecretById(id: string): Secret | undefined {
@@ -1096,13 +903,155 @@ class SecretsManagementService {
     return Array.from(this.secrets.values()).find((s) => s.path === path);
   }
 
+  public createSecret(data: Partial<Secret>): Secret {
+    const secret: Secret = {
+      id: `secret-${this.generateId()}`,
+      name: data.name || 'New Secret',
+      description: data.description || '',
+      type: data.type || 'custom',
+      status: 'active',
+      value: data.value || { ciphertext: '', algorithm: 'aes-256-gcm', keyId: 'key-0001', encoding: 'base64' },
+      version: 1,
+      environment: data.environment || ['development'],
+      tags: data.tags || [],
+      path: data.path || `/secrets/${data.name?.toLowerCase().replace(/\s/g, '-')}`,
+      rotation: data.rotation || { enabled: false, automatic: false, notifyBefore: 14, maxAge: 365, retainVersions: 5 },
+      access: data.access || { policies: [], allowedPrincipals: [], deniedPrincipals: [], conditions: [], mfaRequired: false, auditAccess: true },
+      audit: [],
+      metadata: { createdAt: new Date(), createdBy: 'admin', updatedAt: new Date() },
+    };
+    this.secrets.set(secret.id, secret);
+    this.emit('secret.created', secret);
+    return secret;
+  }
+
+  public rotateSecret(id: string): Secret {
+    const secret = this.secrets.get(id);
+    if (!secret) throw new Error('Secret not found');
+    
+    secret.version++;
+    secret.metadata.lastRotated = new Date();
+    secret.metadata.updatedAt = new Date();
+    secret.status = 'active';
+    
+    if (secret.rotation.schedule) {
+      secret.rotation.schedule.lastRotation = new Date();
+      secret.rotation.schedule.nextRotation = new Date(Date.now() + (secret.rotation.schedule.intervalDays || 90) * 24 * 60 * 60 * 1000);
+    }
+
+    this.emit('secret.rotated', secret);
+    return secret;
+  }
+
+  public revokeSecret(id: string, reason: string): Secret {
+    const secret = this.secrets.get(id);
+    if (!secret) throw new Error('Secret not found');
+    
+    secret.status = 'revoked';
+    secret.metadata.updatedAt = new Date();
+    secret.audit.push({
+      id: `audit-${this.generateId()}`,
+      timestamp: new Date(),
+      action: 'deleted',
+      actor: { type: 'user', id: 'admin', name: 'Admin' },
+      source: {},
+      details: { reason },
+      success: true,
+    });
+
+    this.emit('secret.revoked', { secret, reason });
+    return secret;
+  }
+
+  // Version Operations
+  public getVersions(secretId: string): SecretVersion[] {
+    return this.versions.get(secretId) || [];
+  }
+
+  public getVersion(secretId: string, version: number): SecretVersion | undefined {
+    const versions = this.versions.get(secretId);
+    return versions?.find((v) => v.version === version);
+  }
+
+  // Key Operations
+  public getKeys(): EncryptionKey[] {
+    return Array.from(this.keys.values());
+  }
+
+  public getKeyById(id: string): EncryptionKey | undefined {
+    return this.keys.get(id);
+  }
+
   // Vault Operations
-  public getVaults(): SecretsVault[] {
+  public getVaults(): Vault[] {
     return Array.from(this.vaults.values());
   }
 
-  public getVaultById(id: string): SecretsVault | undefined {
+  public getVaultById(id: string): Vault | undefined {
     return this.vaults.get(id);
+  }
+
+  // Service Account Operations
+  public getServiceAccounts(): ServiceAccount[] {
+    return Array.from(this.serviceAccounts.values());
+  }
+
+  public getServiceAccountById(id: string): ServiceAccount | undefined {
+    return this.serviceAccounts.get(id);
+  }
+
+  // Lease Operations
+  public getLeases(status?: SecretLease['status']): SecretLease[] {
+    let leases = Array.from(this.leases.values());
+    if (status) leases = leases.filter((l) => l.status === status);
+    return leases;
+  }
+
+  public getLeaseById(id: string): SecretLease | undefined {
+    return this.leases.get(id);
+  }
+
+  public renewLease(id: string): SecretLease {
+    const lease = this.leases.get(id);
+    if (!lease) throw new Error('Lease not found');
+    if (!lease.renewable) throw new Error('Lease is not renewable');
+    
+    lease.renewedAt = new Date();
+    lease.expiresAt = new Date(Date.now() + lease.ttl * 1000);
+    
+    this.emit('lease.renewed', lease);
+    return lease;
+  }
+
+  public revokeLease(id: string): SecretLease {
+    const lease = this.leases.get(id);
+    if (!lease) throw new Error('Lease not found');
+    
+    lease.status = 'revoked';
+    lease.revokedAt = new Date();
+    
+    this.emit('lease.revoked', lease);
+    return lease;
+  }
+
+  // Dynamic Secret Operations
+  public getDynamicTemplates(): DynamicSecretTemplate[] {
+    return Array.from(this.dynamicTemplates.values());
+  }
+
+  public getDynamicTemplateById(id: string): DynamicSecretTemplate | undefined {
+    return this.dynamicTemplates.get(id);
+  }
+
+  // Certificate Operations
+  public getCertificates(type?: Certificate['type']): Certificate[] {
+    let certificates = Array.from(this.certificates.values());
+    if (type) certificates = certificates.filter((c) => c.type === type);
+    return certificates;
+  }
+
+  public getCertificateById(id: string): Certificate | undefined {
+    return this.certificates.get(id);
   }
 
   // Template Operations
@@ -1114,95 +1063,48 @@ class SecretsManagementService {
     return this.templates.get(id);
   }
 
-  // Injection Operations
-  public getInjections(): SecretInjection[] {
-    return Array.from(this.injections.values());
-  }
-
-  public getInjectionById(id: string): SecretInjection | undefined {
-    return this.injections.get(id);
-  }
-
-  // Lease Operations
-  public getLeases(): SecretLease[] {
-    return Array.from(this.leases.values());
-  }
-
-  public getLeaseById(id: string): SecretLease | undefined {
-    return this.leases.get(id);
-  }
-
-  // Emergency Access Operations
-  public getEmergencyAccess(): EmergencyAccess[] {
-    return Array.from(this.emergencyAccess.values());
-  }
-
-  public getEmergencyAccessById(id: string): EmergencyAccess | undefined {
-    return this.emergencyAccess.get(id);
-  }
-
   // Statistics
   public getStatistics(): SecretsStatistics {
     const secrets = Array.from(this.secrets.values());
-    const vaults = Array.from(this.vaults.values());
-    const leases = Array.from(this.leases.values());
-
-    const byType: Record<SecretType, number> = {
-      api_key: 0, password: 0, certificate: 0, ssh_key: 0, token: 0,
-      connection_string: 0, encryption_key: 0, oauth_credentials: 0, custom: 0,
-    };
-    const byStatus: Record<SecretStatus, number> = {
-      active: 0, inactive: 0, expired: 0, revoked: 0, pending: 0, compromised: 0,
-    };
+    const byType: Record<SecretType, number> = {} as Record<SecretType, number>;
     const byEnvironment: Record<string, number> = {};
 
     secrets.forEach((s) => {
-      byType[s.type]++;
-      byStatus[s.status]++;
-      byEnvironment[s.metadata.environment] = (byEnvironment[s.metadata.environment] || 0) + 1;
+      byType[s.type] = (byType[s.type] || 0) + 1;
+      s.environment.forEach((env) => {
+        byEnvironment[env] = (byEnvironment[env] || 0) + 1;
+      });
     });
-
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const weekStart = new Date(todayStart.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     return {
       overview: {
         totalSecrets: secrets.length,
         activeSecrets: secrets.filter((s) => s.status === 'active').length,
         expiredSecrets: secrets.filter((s) => s.status === 'expired').length,
-        compromisedSecrets: secrets.filter((s) => s.status === 'compromised').length,
-        totalVaults: vaults.length,
-        activeVaults: vaults.filter((v) => v.status === 'active').length,
+        pendingRotation: secrets.filter((s) => s.status === 'pending_rotation').length,
+        totalVersions: Array.from(this.versions.values()).flat().length,
       },
       byType,
-      byStatus,
       byEnvironment,
-      rotation: {
-        rotationsToday: secrets.filter((s) => s.rotation.lastRotation && s.rotation.lastRotation >= todayStart).length,
-        rotationsThisWeek: secrets.filter((s) => s.rotation.lastRotation && s.rotation.lastRotation >= weekStart).length,
-        pendingRotations: secrets.filter((s) => s.rotation.status === 'pending').length,
-        overdueRotations: secrets.filter((s) => s.rotation.status === 'overdue').length,
-        rotationSuccessRate: 98.5,
-      },
       access: {
-        totalAccesses: secrets.reduce((sum, s) => sum + s.access.accessCount, 0),
-        accessesToday: secrets.reduce((sum, s) => sum + s.access.accessLog.filter((l) => l.timestamp >= todayStart).length, 0),
-        deniedAccesses: secrets.reduce((sum, s) => sum + s.access.accessLog.filter((l) => !l.success).length, 0),
-        uniqueAccessors: new Set(secrets.flatMap((s) => s.access.allowedPrincipals.map((p) => p.id))).size,
+        totalAccesses: secrets.reduce((sum, s) => sum + s.audit.filter((a) => a.action === 'accessed').length, 0),
+        last24hAccesses: secrets.reduce((sum, s) => sum + s.audit.filter((a) => a.action === 'accessed' && a.timestamp > new Date(Date.now() - 24 * 60 * 60 * 1000)).length, 0),
+        uniqueAccessors: new Set(secrets.flatMap((s) => s.audit.map((a) => a.actor.id))).size,
+        deniedAccesses: secrets.reduce((sum, s) => sum + s.audit.filter((a) => !a.success).length, 0),
       },
-      compliance: {
-        overallScore: secrets.reduce((sum, s) => sum + s.audit.compliance.score, 0) / (secrets.length || 1),
-        secretsCompliant: secrets.filter((s) => s.audit.compliance.score >= 90).length,
-        secretsNonCompliant: secrets.filter((s) => s.audit.compliance.score < 90).length,
-        findingsOpen: secrets.reduce((sum, s) => sum + s.audit.compliance.findings.filter((f) => f.status === 'open').length, 0),
+      rotation: {
+        rotationsLast30d: secrets.filter((s) => s.metadata.lastRotated && s.metadata.lastRotated > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).length,
+        scheduledRotations: secrets.filter((s) => s.rotation.enabled && s.rotation.schedule?.nextRotation).length,
+        failedRotations: 0,
+        avgRotationAge: 45,
       },
-      leases: {
-        activeLeases: leases.filter((l) => l.status === 'active').length,
-        expiringLeases: leases.filter((l) => l.status === 'active' && l.lease.expiresAt < new Date(Date.now() + 60 * 60 * 1000)).length,
-        expiredLeases: leases.filter((l) => l.status === 'expired').length,
-        avgLeaseDuration: leases.reduce((sum, l) => sum + l.lease.duration, 0) / (leases.length || 1),
+      security: {
+        secretsWithMfa: secrets.filter((s) => s.access.mfaRequired).length,
+        secretsWithRotation: secrets.filter((s) => s.rotation.enabled).length,
+        secretsExpiringSoon: secrets.filter((s) => s.metadata.expiresAt && s.metadata.expiresAt < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)).length,
+        policyViolations: 0,
       },
+      trends: [],
     };
   }
 
@@ -1224,69 +1126,31 @@ export const secretsManagementService = SecretsManagementService.getInstance();
 export type {
   SecretType,
   SecretStatus,
-  RotationStatus,
   AccessLevel,
+  EncryptionAlgorithm,
   Secret,
-  SecretVersion,
-  VersionInfo,
-  SecretMetadata,
-  SecretAccess,
-  AccessPolicy,
-  PolicyCondition,
-  Principal,
-  AccessLogEntry,
-  SecretRotation,
-  RotationSchedule,
-  RotationHistoryEntry,
+  EncryptedValue,
   RotationConfig,
-  RotationNotification,
-  SecretAudit,
-  AuditEvent,
-  ComplianceAudit,
-  ComplianceFinding,
-  SecretsVault,
-  VaultType,
-  VaultConfiguration,
-  VaultAuthMethod,
-  VaultPolicy,
-  PolicyPath,
-  VaultEncryption,
-  VaultReplication,
-  ReplicationCluster,
-  VaultBackup,
-  BackupSchedule,
-  BackupDestination,
-  BackupHistoryEntry,
-  VaultMetadata,
-  HealthCheck,
-  HealthCheckItem,
-  SecretTemplate,
-  TemplateSchema,
-  SchemaField,
-  TemplateDefaults,
-  TemplateValidation,
-  ValidationRule,
-  SecretGeneration,
-  GenerationConfig,
-  TemplateMetadata,
-  SecretInjection,
-  InjectionTarget,
-  InjectionMapping,
-  InjectionMethod,
-  InjectionSchedule,
-  InjectionValidation,
-  InjectionMetadata,
+  RotationSchedule,
+  AccessConfig,
+  AccessPolicy,
+  Principal,
+  AccessCondition,
+  SecretAuditEntry,
+  SecretVersion,
+  EncryptionKey,
+  Vault,
+  VaultConfig,
+  SealConfig,
+  VaultAuditConfig,
+  VaultMetrics,
+  ServiceAccount,
+  ServiceCredential,
+  Permission,
   SecretLease,
-  LeaseDetails,
-  LeaseRenewal,
-  LeaseMetadata,
-  EmergencyAccess,
-  EmergencyScope,
-  EmergencyAuthorization,
-  EmergencyApprover,
-  BreakGlassConfig,
-  EmergencyAudit,
-  EmergencyActivation,
-  EmergencyMetadata,
+  DynamicSecretTemplate,
+  Certificate,
+  SecretTemplate,
+  TemplateField,
   SecretsStatistics,
 };
